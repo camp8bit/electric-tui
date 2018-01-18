@@ -7,9 +7,6 @@
 // Define the array of leds
 CRGB leds[NUM_LEDS];
 
-#include <Servo.h>
-
-Servo ductedFan;  // create servo object to control a servo
 // twelve servo objects can be created on most boards
 
 int pos = 0;    // variable to store the servo position
@@ -22,7 +19,7 @@ float  lerp(float a, float b, float f)
 class Envelope {
   public:
     float attack, decay, sustain, release, start;
-    int period;
+    long period;
 
   // attack, decay and release are in millis
   // sustain is an amplitude (float of 0-1)
@@ -38,13 +35,13 @@ class Envelope {
 
   // You have to specify how long the period is (the time from
   // noteOn to noteOff) in millis
-  void trigger (int p) {
+  void trigger (long p) {
     start = millis();
     period = p;
   }
 
   float value () {
-    int t = millis() - start;
+    long t = millis() - start;
 
     if (t < attack) {
       return lerp (0, 1, 1.0 / attack * t);
@@ -58,41 +55,55 @@ class Envelope {
       return 0;
     }
   }
+
+  bool finished () {
+    return millis() - start > period;
+  }
 };
 
 Envelope *e;
 
 void setup() {
-  ductedFan.attach(7);  // attaches the servo on pin 9 to the servo object
+  // ductedFan.attach(7);
   FastLED.addLeds<NEOPIXEL, DATA_PIN>(leds, NUM_LEDS);
 
   for (int i = 0; i < NUM_LEDS; i++) {
     leds[i] = CRGB::Black;
   }
   FastLED.show();
+  
+  // ductedFan.write(0);
 
-  delay(10000);
+  delay(2000);
 
   e = new Envelope(5000, 5000, 0.2, 5000);
-  e->trigger(60000);
+  e->trigger(20000);
 }
 
 int maxPos = 180;
+byte offset = 0;
 
 void loop() {
+  offset+=1;
   int v = e->value() * 255;
-  
-  for (int i = 0; i < NUM_LEDS; i++) {
-    // leds[i] = CHSV(92, 255, v);
-    leds[i] = CRGB::Black;
+
+  for (int rows = 0; rows < 9 ; rows++) {
+    for (int i = 0; i < 9; i++) {
+      byte hue = i * 4 + offset;
+      leds[i + rows * 9] = CHSV(hue, 255, v);
+    }
   }
 
   FastLED.show();
 
-  // ductedFan.write((float) e->value() * maxPos);
-  ductedFan.write(180);
+  if (e->finished()) {
+    e->trigger(20000);
+  }
+  
+  // ductedFan.write(100 * e->value());
+  // ductedFan.write(180);
   // ductedFan.write(0);
 
-  delay(15);                       // waits 15ms for the servo to reach the position
+  delay(10);                       // waits 15ms for the servo to reach the position
 }
 
