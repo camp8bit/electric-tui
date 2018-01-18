@@ -81,18 +81,160 @@ void setup() {
 }
 
 int maxPos = 180;
-byte offset = 0;
+long offset = 0;
 
-void loop() {
-  offset+=1;
+void rainbow () {
   int v = e->value() * 255;
 
   for (int rows = 0; rows < 9 ; rows++) {
     for (int i = 0; i < 9; i++) {
-      byte hue = i * 4 + offset;
+      byte hue = i * 20 + offset;
       leds[i + rows * 9] = CHSV(hue, 255, v);
     }
-  }
+  }  
+}
+
+// Divider governs the speed of pixel to pixel movement
+int divider = 3;
+
+// front to the back
+void accelerate () {
+  int v = e->value() * 255;
+
+  CRGB color = CHSV(floor(offset / divider) * 32, 255, 255);
+  
+  for (int y = 0; y < 9 ; y++) {
+    int x = (offset / divider) % 9;
+
+    leds[x + y * 9] = color;
+  }  
+}
+
+// front to the back and back to front
+void doorsClose () {
+  int v = e->value() * 255;
+
+  CRGB color = CHSV(floor(offset / divider) * 32, 255, 255);
+  
+  for (int y = 0; y < 9 ; y++) {
+    int x = (offset / divider) % 9;
+    leds[x + y * 9] = color;
+
+    x = 9 - (offset / divider) % 9;
+    leds[x + y * 9] = color;
+  }  
+}
+
+
+// side to side
+void sweep () {
+  int v = e->value() * 255;
+
+  CRGB color = CHSV(floor(offset / 100) * 32, 255, 255);
+  
+  for (int x = 0; x < 9 ; x++) {
+    int y = (offset / divider) % 9;
+
+    leds[x + y * 9] = color;
+  }  
+}
+
+// side to side
+void leftRightStrobe () {
+  int v = e->value() * 255;
+
+  CRGB color = CRGB::White;
+
+  int left = (offset / divider / 64) % 2 == 0;
+  
+  for (int x = 0; x < 9 ; x++) {
+    for (int y = 0; y < 9 ; y++) {
+      bool active = left ? y < 4 : y > 4;
+
+      active = active && offset % 8 == 0;
+
+      if (active) {
+        leds[x + y * 9] = color;
+      }
+    }
+  }  
+}
+void diagonal () {
+  int v = e->value() * 255;
+
+  CRGB color = CHSV(floor(offset / 100) * 32, 255, 255);
+
+  int o = (offset / divider) % 9;
+  
+  for (int x = 0; x < 9 ; x++) {
+    for (int y = 0; y < 9 ; y++) {
+      bool active = (x + y) % 9 == o;
+
+      if (active) {
+        leds[x + y * 9] = color;
+      }
+    }
+  }  
+}
+
+void snow () {
+  CRGB color = CRGB(255, 255, 255);
+
+  for (int x = 0; x < 9 ; x++) {
+    for (int y = 0; y < 9 ; y++) {
+      bool active = random(100) < 5;
+
+      if (active) {
+        leds[x + y * 9] = color;
+      }
+    }
+  }  
+}
+
+void checkerboard () {
+  CRGB color = CRGB(255, 255, 255);
+
+  for (int x = 0; x < 9 ; x++) {
+    for (int y = 0; y < 9 ; y++) {
+      int x2 = x + offset / (divider / 2);
+      
+      bool active = (x2 / 4 + y / 3) % 2 == 0;
+
+      if (active) {
+        leds[x + y * 9] = color;
+      }
+    }
+  }  
+}
+
+#define ARRAY_SIZE(A) (sizeof(A) / sizeof((A)[0]))
+
+typedef void (*SimplePatternList[])();
+SimplePatternList gPatterns = { accelerate, sweep, diagonal, snow, rainbow, doorsClose, leftRightStrobe, checkerboard };
+uint8_t gCurrentPatternNumber = 0; // Index number of which pattern is current
+
+void nextPattern()
+{
+  // add one to the current pattern number, and wrap around at the end
+  gCurrentPatternNumber = (gCurrentPatternNumber + 1) % ARRAY_SIZE( gPatterns);
+}
+
+void loop() {
+  offset+=1;
+
+  fill_solid(leds, NUM_LEDS, CRGB::Black);
+
+  EVERY_N_SECONDS( 10 ) { nextPattern(); } // change patterns periodically
+
+  // accelerate();
+  // sweep();
+  // diagonal();
+  // snow();
+  // rainbow();
+  // doorsClose();
+  // leftRightStrobe();
+  // checkerboard();
+  gPatterns[gCurrentPatternNumber]();
 
   FastLED.show();
 
@@ -104,6 +246,8 @@ void loop() {
   // ductedFan.write(180);
   // ductedFan.write(0);
 
-  delay(10);                       // waits 15ms for the servo to reach the position
+  // run a 100fps
+  delay(2);                       // waits 15ms for the servo to reach the position
+  delay(10);
 }
 
