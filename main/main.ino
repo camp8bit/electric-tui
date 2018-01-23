@@ -4,6 +4,19 @@
 #define NUM_LEDS 9 * 9
 #define DATA_PIN 9
 
+#define RUNTIME (long) 8 * 3600 * 1000
+
+#include <Stepper.h>
+
+ 
+// change this to the number of steps on your motor
+#define STEPS 200
+ 
+// create an instance of the stepper class, specifying
+// the number of steps of the motor and the pins it's
+// attached to
+Stepper stepper(STEPS, 6,7,8, 12);
+ 
 // Define the array of leds
 CRGB leds[NUM_LEDS];
 
@@ -11,62 +24,24 @@ CRGB leds[NUM_LEDS];
 
 int pos = 0;    // variable to store the servo position
 
-float  lerp(float a, float b, float f)
-{
-    return a + f * (b - a);
-}
+long cablePosition = 0; // cable position in steps
+long destination = 0; // destination position in steps
+long motorSleep;
+long lightSleep;
 
-class Envelope {
-  public:
-    float attack, decay, sustain, release, start;
-    long period;
-
-  // attack, decay and release are in millis
-  // sustain is an amplitude (float of 0-1)
-  
-  Envelope (float a, float d, float s, float r) {
-    start = millis();
-
-    attack = a;
-    decay = d; 
-    sustain = s;
-    release = r; 
-  }
-
-  // You have to specify how long the period is (the time from
-  // noteOn to noteOff) in millis
-  void trigger (long p) {
-    start = millis();
-    period = p;
-  }
-
-  float value () {
-    long t = millis() - start;
-
-    if (t < attack) {
-      return lerp (0, 1, 1.0 / attack * t);
-    } else if (t < attack + decay) {
-      return lerp (1, sustain, 1.0 / decay * (t - attack));
-    } else if (t < period - release) {
-      return sustain;
-    } else if (t < period) {
-      return lerp (sustain, 0, 1.0 / release * (t - period + release ));
-    } else {
-      return 0;
-    }
-  }
-
-  bool finished () {
-    return millis() - start > period;
-  }
-};
-
-Envelope *e;
+int encoder0Click = 3;
+int encoder0PinA = 5;
+int encoder0PinB = 4;
+int encoder0Pos = 0;
+int encoder0PinALast = LOW;
 
 void setup() {
+  stepper.setSpeed(200);
+
   // ductedFan.attach(7);
   FastLED.addLeds<NEOPIXEL, DATA_PIN>(leds, NUM_LEDS);
-
+  FastLED.setBrightness(192); // save some amps
+  
   for (int i = 0; i < NUM_LEDS; i++) {
     leds[i] = CRGB::Black;
   }
@@ -74,33 +49,70 @@ void setup() {
   
   // ductedFan.write(0);
 
-  delay(2000);
+  delay(500);
 
-  e = new Envelope(5000, 5000, 0.2, 5000);
-  e->trigger(20000);
+  destination = -2000;
+  motorSleep = millis() + random(0, 2000);
+  // lightSleep = millis() + random(0, 2000);
+
+  // Configure encoder
+  pinMode (encoder0Click, INPUT);
+  pinMode (encoder0PinA, INPUT);
+  pinMode (encoder0PinB, INPUT);
+  digitalWrite(encoder0Click, HIGH);  
+
+  config();
 }
 
+int travelDistance = 1000;
+
+void config () {
+  bool n;
+
+  while (!!digitalRead(encoder0Click)) {
+    n = digitalRead(encoder0PinA);
+    
+    if ((encoder0PinALast == LOW) && (n == HIGH)) {
+      if (digitalRead(encoder0PinB) == LOW) {
+        encoder0Pos--;
+      } else {
+        encoder0Pos++;
+      }
+      // Serial.print (encoder0Pos);
+      // Serial.print ("/");
+    }
+    encoder0PinALast = n;  
+
+    encoder0Pos = max(0, encoder0Pos);
+
+    // Each LED is 3 rotations
+    travelDistance = encoder0Pos * 600;
+    destination = travelDistance;
+    
+    fill_solid(leds, NUM_LEDS, CRGB::Black);
+    fill_solid(leds, encoder0Pos, CRGB::Green);
+    FastLED.show();
+
+  }
+}
 int maxPos = 180;
 long offset = 0;
-
-void rainbow () {
-  int v = e->value() * 255;
-
-  for (int rows = 0; rows < 9 ; rows++) {
-    for (int i = 0; i < 9; i++) {
-      byte hue = i * 20 + offset;
-      leds[i + rows * 9] = CHSV(hue, 255, v);
-    }
-  }  
-}
 
 // Divider governs the speed of pixel to pixel movement
 int divider = 3;
 
+void rainbow () {
+  for (int x= 0; x < 9 ; x++) {
+    byte hue = x * 20 + offset;
+    CRGB color = CHSV(hue, 255, 255);
+
+    int y = (offset / divider) % 9;
+    leds[x + y * 9] = color;
+  }  
+}
+
 // front to the back
 void accelerate () {
-  int v = e->value() * 255;
-
   CRGB color = CHSV(floor(offset / divider) * 32, 255, 255);
   
   for (int y = 0; y < 9 ; y++) {
@@ -109,27 +121,9 @@ void accelerate () {
     leds[x + y * 9] = color;
   }  
 }
-
-// front to the back and back to front
-void doorsClose () {
-  int v = e->value() * 255;
-
-  CRGB color = CHSV(floor(offset / divider) * 32, 255, 255);
-  
-  for (int y = 0; y < 9 ; y++) {
-    int x = (offset / divider) % 9;
-    leds[x + y * 9] = color;
-
-    x = 9 - (offset / divider) % 9;
-    leds[x + y * 9] = color;
-  }  
-}
-
 
 // side to side
 void sweep () {
-  int v = e->value() * 255;
-
   CRGB color = CHSV(floor(offset / 100) * 32, 255, 255);
   
   for (int x = 0; x < 9 ; x++) {
@@ -141,9 +135,7 @@ void sweep () {
 
 // side to side
 void leftRightStrobe () {
-  int v = e->value() * 255;
-
-  CRGB color = CRGB::White;
+  CRGB color = CHSV(floor(offset / 100) * 32, 255, 255);
 
   int left = (offset / divider / 64) % 2 == 0;
   
@@ -160,8 +152,6 @@ void leftRightStrobe () {
   }  
 }
 void diagonal () {
-  int v = e->value() * 255;
-
   CRGB color = CHSV(floor(offset / 100) * 32, 255, 255);
 
   int o = (offset / divider) % 9;
@@ -192,7 +182,7 @@ void snow () {
 }
 
 void checkerboard () {
-  CRGB color = CRGB(255, 255, 255);
+  CRGB color = CHSV(floor(offset / 100) * 32, 255, 255);
 
   for (int x = 0; x < 9 ; x++) {
     for (int y = 0; y < 9 ; y++) {
@@ -210,7 +200,7 @@ void checkerboard () {
 #define ARRAY_SIZE(A) (sizeof(A) / sizeof((A)[0]))
 
 typedef void (*SimplePatternList[])();
-SimplePatternList gPatterns = { accelerate, sweep, diagonal, snow, rainbow, doorsClose, leftRightStrobe, checkerboard };
+SimplePatternList gPatterns = { accelerate, sweep, diagonal, snow, rainbow, leftRightStrobe, checkerboard };
 uint8_t gCurrentPatternNumber = 0; // Index number of which pattern is current
 
 void nextPattern()
@@ -219,35 +209,81 @@ void nextPattern()
   gCurrentPatternNumber = (gCurrentPatternNumber + 1) % ARRAY_SIZE( gPatterns);
 }
 
+int stepperSpeed = 200;
+
 void loop() {
-  offset+=1;
+  EVERY_N_SECONDS( 4 ) { nextPattern(); } // change patterns periodically
 
-  fill_solid(leds, NUM_LEDS, CRGB::Black);
+  EVERY_N_MILLISECONDS( 40 ) {
+    offset+=1;
+    fill_solid(leds, NUM_LEDS, CRGB::Black);
 
-  EVERY_N_SECONDS( 10 ) { nextPattern(); } // change patterns periodically
-
-  // accelerate();
-  // sweep();
-  // diagonal();
-  // snow();
-  // rainbow();
-  // doorsClose();
-  // leftRightStrobe();
-  // checkerboard();
-  gPatterns[gCurrentPatternNumber]();
-
-  FastLED.show();
-
-  if (e->finished()) {
-    e->trigger(20000);
+    if ((motorSleep > millis()) || (millis() > RUNTIME)) {
+      // lights are black if motor is asleep
+    } else {
+      gPatterns[gCurrentPatternNumber]();
+    }
+    
+    FastLED.show();
   }
-  
+
   // ductedFan.write(100 * e->value());
   // ductedFan.write(180);
   // ductedFan.write(0);
 
   // run a 100fps
-  delay(2);                       // waits 15ms for the servo to reach the position
-  delay(10);
+  // delay(2);                       // waits 15ms for the servo to reach the position
+
+  // One rotation
+
+  int steps = 0;;
+  int maxSteps = 20;
+
+  if ((motorSleep > millis()) || (millis() > RUNTIME)) {
+    // do nothing
+    delay(50);
+
+    // Disable h bridge (dont have standby pin hooked up)
+    digitalWrite(6, LOW);
+    digitalWrite(7, LOW);
+    digitalWrite(8, LOW);
+    digitalWrite(12, LOW);
+  } else {
+    // Try accelerating
+    stepperSpeed += 1;
+
+    stepperSpeed  = min(200, stepperSpeed);
+    
+    stepper.setSpeed(stepperSpeed);
+
+    if (destination > cablePosition) {
+      steps = min(maxSteps, destination - cablePosition);
+    } else if (destination < cablePosition) {
+      steps = max(-maxSteps, destination - cablePosition);
+    }
+  
+    if (destination == cablePosition) {
+      stepperSpeed = 100;
+
+      // Disable h bridge (dont have standby pin hooked up)
+      digitalWrite(6, LOW);
+      digitalWrite(7, LOW);
+      digitalWrite(8, LOW);
+      digitalWrite(12, LOW);
+
+      // Sleep the motor 3 to 10 minutes
+      motorSleep = millis() + random(3, 10) * 60 * 1000;
+      
+      // Set a new destination for when we wake up
+      if (cablePosition < 0) {
+        destination = travelDistance;
+      } else {
+        destination = -travelDistance;
+      }
+    }
+  }
+    
+  stepper.step(steps);
+  cablePosition += steps;
 }
 
